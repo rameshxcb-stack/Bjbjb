@@ -1,12 +1,14 @@
 -- ═══════════════════════════════════════════
--- MCQs
+-- MCQs — 4-Level Hierarchy
+-- Category → Section → Subject → Chapter
 -- ═══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS mcqs (
   id TEXT PRIMARY KEY,
-  exam_type TEXT NOT NULL,
+  category TEXT NOT NULL,
+  section TEXT NOT NULL,
   subject TEXT NOT NULL,
   chapter TEXT NOT NULL,
-  topic TEXT,
+  exam_type TEXT,
   difficulty TEXT DEFAULT 'medium',
   question_hi TEXT NOT NULL,
   question_en TEXT NOT NULL,
@@ -22,10 +24,7 @@ CREATE TABLE IF NOT EXISTS mcqs (
   explanation_hi TEXT,
   explanation_en TEXT,
   hash TEXT UNIQUE NOT NULL,
-  fingerprint TEXT,               -- sorted keywords
-  ordered_fp TEXT,                -- ⭐ NEW: order-preserved
-  trigram_fp TEXT,                -- ⭐ NEW: 8 minhash sigs (comma-sep)
-  option_fp TEXT,                 -- ⭐ NEW: options fingerprint
+  fingerprint TEXT,
   quality_score REAL DEFAULT 0,
   is_gold INTEGER DEFAULT 0,
   source_url TEXT,
@@ -39,37 +38,42 @@ CREATE TABLE IF NOT EXISTS mcqs (
   created_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_mcqs_chapter ON mcqs(chapter);
-CREATE INDEX IF NOT EXISTS idx_mcqs_exam ON mcqs(exam_type);
+CREATE INDEX IF NOT EXISTS idx_mcqs_category ON mcqs(category);
+CREATE INDEX IF NOT EXISTS idx_mcqs_section ON mcqs(category, section);
+CREATE INDEX IF NOT EXISTS idx_mcqs_subject ON mcqs(category, section, subject);
+CREATE INDEX IF NOT EXISTS idx_mcqs_chapter ON mcqs(category, section, subject, chapter);
 CREATE INDEX IF NOT EXISTS idx_mcqs_hash ON mcqs(hash);
 CREATE INDEX IF NOT EXISTS idx_mcqs_fingerprint ON mcqs(fingerprint);
-CREATE INDEX IF NOT EXISTS idx_mcqs_ordered_fp ON mcqs(ordered_fp);
-CREATE INDEX IF NOT EXISTS idx_mcqs_trigram_fp ON mcqs(trigram_fp);
-CREATE INDEX IF NOT EXISTS idx_mcqs_option_fp ON mcqs(option_fp);
-CREATE INDEX IF NOT EXISTS idx_mcqs_chapter_random ON mcqs(chapter, random_key);
-CREATE INDEX IF NOT EXISTS idx_mcqs_subject_random ON mcqs(subject, random_key);
-CREATE INDEX IF NOT EXISTS idx_mcqs_chapter_created ON mcqs(chapter, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcqs_random ON mcqs(category, section, subject, chapter, random_key);
 
 -- ═══════════════════════════════════════════
--- MinHash signatures (fast lookup table)
+-- ⭐ Chapter Pool (AI-generated chapters)
 -- ═══════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS mcq_signatures (
-  mcq_id TEXT NOT NULL,
-  sig_index INTEGER NOT NULL,     -- 0..7
-  sig_value INTEGER NOT NULL,
-  PRIMARY KEY (mcq_id, sig_index)
+CREATE TABLE IF NOT EXISTS chapter_pool (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,
+  section TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  chapter TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  mcq_count INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(category, section, subject, chapter)
 );
-CREATE INDEX IF NOT EXISTS idx_sig_lookup ON mcq_signatures(sig_index, sig_value);
+CREATE INDEX IF NOT EXISTS idx_chapter_pool_status ON chapter_pool(status);
+CREATE INDEX IF NOT EXISTS idx_chapter_pool_subject ON chapter_pool(category, section, subject);
 
 -- ═══════════════════════════════════════════
 -- Generation tasks
 -- ═══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS generation_tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  exam_type TEXT NOT NULL,
+  category TEXT NOT NULL,
+  section TEXT NOT NULL,
   subject TEXT NOT NULL,
   chapter TEXT NOT NULL,
-  topic TEXT,
+  exam_type TEXT,
   difficulty TEXT DEFAULT 'hard',
   target_count INTEGER NOT NULL,
   generated_count INTEGER DEFAULT 0,
@@ -110,6 +114,9 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 CREATE TABLE IF NOT EXISTS results (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL,
+  category TEXT,
+  section TEXT,
+  subject TEXT,
   chapter TEXT NOT NULL,
   qid TEXT NOT NULL,
   selected INTEGER NOT NULL,
@@ -130,9 +137,12 @@ CREATE TABLE IF NOT EXISTS admin_nonces (
   used_at INTEGER NOT NULL
 );
 
--- Bundle metadata
+-- Bundles
 CREATE TABLE IF NOT EXISTS bundles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT,
+  section TEXT,
+  subject TEXT,
   chapter TEXT NOT NULL,
   bundle_name TEXT NOT NULL,
   version INTEGER DEFAULT 1,
@@ -140,7 +150,7 @@ CREATE TABLE IF NOT EXISTS bundles (
   UNIQUE(chapter, bundle_name)
 );
 
--- Telegram alert dedup
+-- Telegram
 CREATE TABLE IF NOT EXISTS telegram_log (
   id TEXT PRIMARY KEY,
   event TEXT,
@@ -154,9 +164,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   rollback_sql TEXT
 );
 
--- ═══════════════════════════════════════════
--- AI Learning Loop
--- ═══════════════════════════════════════════
+-- AI Learning loop
 CREATE TABLE IF NOT EXISTS learn_good (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   mcq_id TEXT,
@@ -165,7 +173,6 @@ CREATE TABLE IF NOT EXISTS learn_good (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_learn_good_score ON learn_good(score DESC);
-CREATE INDEX IF NOT EXISTS idx_learn_good_time ON learn_good(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS learn_bad (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,9 +183,7 @@ CREATE TABLE IF NOT EXISTS learn_bad (
 );
 CREATE INDEX IF NOT EXISTS idx_learn_bad_id ON learn_bad(id DESC);
 
--- ═══════════════════════════════════════════
--- API Keys
--- ═══════════════════════════════════════════
+-- API keys (optional)
 CREATE TABLE IF NOT EXISTS api_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   key_hash TEXT UNIQUE,
@@ -190,9 +195,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used INTEGER
 );
 
--- ═══════════════════════════════════════════
 -- User interactions
--- ═══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS user_saved (
   user_id TEXT NOT NULL,
   mcq_id TEXT NOT NULL,
