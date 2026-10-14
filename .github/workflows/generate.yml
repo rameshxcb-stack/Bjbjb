@@ -1,0 +1,40 @@
+name: MCQ Auto Generation
+
+on:
+  schedule:
+    # हर 2 घंटे में चलाओ (free tier में fit)
+    - cron: '0 */2 * * *'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run MCQ generation
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS }}
+          DEEPSEEK_KEYS: ${{ secrets.DEEPSEEK_KEYS }}
+          TASKS_PER_RUN: '5'
+          CHAPTERS_PER_SUBJECT: '20'
+          MCQS_PER_CHAPTER: '10'
+          DEBUG_DB: '0'
+        run: node scripts/generate.js
+
+      - name: Log finish
+        if: always()
+        run: echo "✅ Run finished"
