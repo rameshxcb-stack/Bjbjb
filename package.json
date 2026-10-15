@@ -14,5 +14,9 @@
   },
   "overrides": {
     "@libsql/hrana-client": "0.8.0"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.js",
+    "backfill": "node scripts/backfill-signatures.js"
   }
 }
