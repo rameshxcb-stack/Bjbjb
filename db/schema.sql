@@ -1,6 +1,5 @@
 -- ═══════════════════════════════════════════
--- MCQs — 4-Level Hierarchy
--- Category → Section → Subject → Chapter
+-- MCQs — 4-Level Hierarchy + Uniqueness
 -- ═══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS mcqs (
   id TEXT PRIMARY KEY,
@@ -20,11 +19,14 @@ CREATE TABLE IF NOT EXISTS mcqs (
   option_c_en TEXT NOT NULL,
   option_d_hi TEXT NOT NULL,
   option_d_en TEXT NOT NULL,
-  answer INTEGER NOT NULL,
+  answer INTEGER NOT NULL CHECK (answer BETWEEN 0 AND 3),
   explanation_hi TEXT,
   explanation_en TEXT,
   hash TEXT UNIQUE NOT NULL,
   fingerprint TEXT,
+  trigram_sig TEXT,
+  trigram_version INTEGER NOT NULL DEFAULT 2,
+  word_set_fp TEXT,
   quality_score REAL DEFAULT 0,
   is_gold INTEGER DEFAULT 0,
   source_url TEXT,
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS mcqs (
   random_key INTEGER DEFAULT 0,
   version INTEGER DEFAULT 1,
   parent_qid TEXT,
+  generation_task_id INTEGER,
   attempt_count INTEGER DEFAULT 0,
   correct_count INTEGER DEFAULT 0,
   wrong_count INTEGER DEFAULT 0,
@@ -42,13 +45,17 @@ CREATE INDEX IF NOT EXISTS idx_mcqs_category ON mcqs(category);
 CREATE INDEX IF NOT EXISTS idx_mcqs_section ON mcqs(category, section);
 CREATE INDEX IF NOT EXISTS idx_mcqs_subject ON mcqs(category, section, subject);
 CREATE INDEX IF NOT EXISTS idx_mcqs_chapter ON mcqs(category, section, subject, chapter);
+CREATE INDEX IF NOT EXISTS idx_mcqs_created_at ON mcqs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcqs_chapter_created ON mcqs(category, section, subject, chapter, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mcqs_hash ON mcqs(hash);
+CREATE INDEX IF NOT EXISTS idx_mcqs_gold ON mcqs(is_gold, quality_score DESC);
+CREATE INDEX IF NOT EXISTS idx_mcqs_generation_task ON mcqs(generation_task_id);
 CREATE INDEX IF NOT EXISTS idx_mcqs_fingerprint ON mcqs(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_mcqs_trigram ON mcqs(trigram_sig);
+CREATE INDEX IF NOT EXISTS idx_mcqs_wordset ON mcqs(word_set_fp);
 CREATE INDEX IF NOT EXISTS idx_mcqs_random ON mcqs(category, section, subject, chapter, random_key);
 
--- ═══════════════════════════════════════════
--- ⭐ Chapter Pool (AI-generated chapters)
--- ═══════════════════════════════════════════
+-- Chapter Pool
 CREATE TABLE IF NOT EXISTS chapter_pool (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   category TEXT NOT NULL,
@@ -64,9 +71,7 @@ CREATE TABLE IF NOT EXISTS chapter_pool (
 CREATE INDEX IF NOT EXISTS idx_chapter_pool_status ON chapter_pool(status);
 CREATE INDEX IF NOT EXISTS idx_chapter_pool_subject ON chapter_pool(category, section, subject);
 
--- ═══════════════════════════════════════════
 -- Generation tasks
--- ═══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS generation_tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   category TEXT NOT NULL,
@@ -84,6 +89,16 @@ CREATE TABLE IF NOT EXISTS generation_tasks (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_gen_tasks_status ON generation_tasks(status, created_at);
+
+-- ⭐ NEW: Exam Pattern Cache
+CREATE TABLE IF NOT EXISTS exam_pattern_cache (
+  cache_key TEXT PRIMARY KEY,
+  exam_type TEXT NOT NULL,
+  subject TEXT,
+  pattern_text TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pattern_exam ON exam_pattern_cache(exam_type, subject);
 
 -- Audit log
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -183,7 +198,7 @@ CREATE TABLE IF NOT EXISTS learn_bad (
 );
 CREATE INDEX IF NOT EXISTS idx_learn_bad_id ON learn_bad(id DESC);
 
--- API keys (optional)
+-- API keys
 CREATE TABLE IF NOT EXISTS api_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   key_hash TEXT UNIQUE,
