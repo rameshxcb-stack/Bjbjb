@@ -1,10 +1,16 @@
 name: MCQ Auto Generation
 
+concurrency:
+  group: mcq-auto-generation
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 on:
   schedule:
-    # हर 2 घंटे में चलाओ (free tier में fit)
     - cron: '0 */2 * * *'
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   generate:
@@ -21,7 +27,15 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
+
+      - name: Ensure schema columns and backfill signatures
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          BACKFILL_BATCH_SIZE: '100'
+          BACKFILL_MAX_ROWS_PER_RUN: '1000'
+        run: node scripts/backfill-signatures.js
 
       - name: Run MCQ generation
         env:
@@ -29,12 +43,15 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GEMINI_KEYS: ${{ secrets.GEMINI_KEYS }}
           DEEPSEEK_KEYS: ${{ secrets.DEEPSEEK_KEYS }}
-          TASKS_PER_RUN: '5'
+          TASKS_PER_RUN: '3'
           CHAPTERS_PER_SUBJECT: '20'
           MCQS_PER_CHAPTER: '10'
+          SEED_LIMIT_PER_RUN: '5'
           DEBUG_DB: '0'
+          MAX_TASK_ATTEMPTS: '3'
+          STALE_PROCESSING_MINUTES: '120'
         run: node scripts/generate.js
 
-      - name: Log finish
+      - name: Done
         if: always()
-        run: echo "✅ Run finished"
+        run: echo "✅ Run complete"
