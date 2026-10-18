@@ -8,15 +8,11 @@
   },
   "dependencies": {
     "@libsql/client": "0.15.9",
-    "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
-    "zod": "^3.22.4"
-  },
-  "overrides": {
-    "@libsql/hrana-client": "0.8.0"
+    "zod": "^3.22.4",
+    "pdf-parse": "2.4.5"
   },
   "scripts": {
-    "generate": "node scripts/generate.js",
-    "backfill": "node scripts/backfill-signatures.js"
+    "start": "node scripts/generate.js"
   }
 }
