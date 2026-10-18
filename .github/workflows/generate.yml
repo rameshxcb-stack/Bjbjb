@@ -9,49 +9,34 @@ permissions:
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '17 * * * *'
+    - cron: '0 3 * * 0'
   workflow_dispatch:
 
 jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 55
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      - name: Install
         run: npm install --no-audit --no-fund
 
-      - name: Ensure schema columns and backfill signatures
-        env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          BACKFILL_BATCH_SIZE: '100'
-          BACKFILL_MAX_ROWS_PER_RUN: '1000'
-        run: node scripts/backfill-signatures.js
-
-      - name: Run MCQ generation
+      - name: Run Generator
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GEMINI_KEYS: ${{ secrets.GEMINI_KEYS }}
           DEEPSEEK_KEYS: ${{ secrets.DEEPSEEK_KEYS }}
           TASKS_PER_RUN: '3'
-          CHAPTERS_PER_SUBJECT: '20'
           MCQS_PER_CHAPTER: '10'
-          SEED_LIMIT_PER_RUN: '5'
-          DEBUG_DB: '0'
-          MAX_TASK_ATTEMPTS: '3'
-          STALE_PROCESSING_MINUTES: '120'
+          MCQ_QUALITY_GATE: '90'
+          MCQ_AUTO_APPROVE_TIER: '1'
+          MCQ_AUTO_APPROVE_MIN_SCORE: '93'
+          MCQ_MAX_SAVE_RATE: '0.15'
+          RUN_PYQ_INGEST: ${{ github.event.schedule == '0 3 * * 0' && '1' || '0' }}
         run: node scripts/generate.js
-
-      - name: Done
-        if: always()
-        run: echo "✅ Run complete"
