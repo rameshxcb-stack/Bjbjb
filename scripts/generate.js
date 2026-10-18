@@ -35,7 +35,7 @@ function log(m) { console.log(`[${new Date().toISOString()}] ${m}`); }
 function logSection(t) { console.log('\n' + '='.repeat(60)); console.log(t); console.log('='.repeat(60)); }
 
 // ═══════════════════════════════════════════
-// 1. SCHEMA MIGRATION (ensure-knowledge-base)
+// 1. SCHEMA MIGRATION (Fixed)
 // ═══════════════════════════════════════════
 async function runMigrations() {
   logSection('STEP 1: Migrations');
@@ -44,21 +44,33 @@ async function runMigrations() {
     await db.execute(`CREATE TABLE IF NOT EXISTS knowledge_base (chapter_key TEXT PRIMARY KEY, subject TEXT NOT NULL, chapter TEXT NOT NULL, source_url TEXT NOT NULL, extracted_text TEXT NOT NULL, extraction_method TEXT NOT NULL DEFAULT 'unknown', downloaded_at INTEGER NOT NULL)`);
     await db.execute(`CREATE TABLE IF NOT EXISTS source_host_state (host TEXT PRIMARY KEY, robots_policy_json TEXT, robots_fetched_at INTEGER, cooldown_until INTEGER NOT NULL DEFAULT 0, last_status INTEGER, updated_at INTEGER NOT NULL)`);
     
-    async function addCol(t, c, d) { const info = await db.execute(`PRAGMA table_info(${t})`); if (!info.rows.some(r => r.name === c)) await db.execute(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); }
-    await addCol('mcqs', 'generation_task_id', 'INTEGER'); await addCol('mcqs', 'is_disabled', 'INTEGER NOT NULL DEFAULT 0');
-    await addCol('mcqs', 'trigram_version', 'INTEGER'); await addCol('mcqs', 'structural_checked_at', 'INTEGER');
+    async function addCol(t, c, d) { 
+      const info = await db.execute(`PRAGMA table_info(${t})`); 
+      if (!info.rows.some(r => r.name === c)) {
+        await db.execute(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); 
+      }
+    }
+    // FIXED: Ye columns add kiye ja rahe hain taaki purana DB bhi naye code se chal sake
+    await addCol('mcqs', 'audit_status', "TEXT NOT NULL DEFAULT 'pending'");
+    await addCol('mcqs', 'audit_notes', 'TEXT');
+    await addCol('mcqs', 'audit_checked_at', 'INTEGER');
+    await addCol('mcqs', 'generation_task_id', 'INTEGER'); 
+    await addCol('mcqs', 'is_disabled', 'INTEGER NOT NULL DEFAULT 0');
+    await addCol('mcqs', 'trigram_version', 'INTEGER'); 
+    await addCol('mcqs', 'structural_checked_at', 'INTEGER');
     
     await db.execute(`CREATE TABLE IF NOT EXISTS mcq_answer_stats (qid TEXT PRIMARY KEY, attempt_count INTEGER NOT NULL DEFAULT 0, correct_count INTEGER NOT NULL DEFAULT 0, wrong_count INTEGER NOT NULL DEFAULT 0, is_disabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`);
     await db.execute(`CREATE TABLE IF NOT EXISTS mcq_quality_flags (qid TEXT PRIMARY KEY, quality_status TEXT NOT NULL DEFAULT 'active', flag_reason TEXT, flagged_at INTEGER, ai_recheck_status TEXT NOT NULL DEFAULT 'not_run', ai_recheck_at INTEGER, details_json TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)`);
     await db.execute(`CREATE TABLE IF NOT EXISTS pyq_bank (id TEXT PRIMARY KEY, category TEXT, section TEXT, subject TEXT, chapter TEXT, exam_name TEXT, exam_year INTEGER, question_en TEXT, question_number TEXT, question_hi TEXT, option_a_en TEXT, option_b_en TEXT, option_c_en TEXT, option_d_en TEXT, option_a_hi TEXT, option_b_hi TEXT, option_c_hi TEXT, option_d_hi TEXT, correct_answer INTEGER, difficulty TEXT, topics TEXT, source_url TEXT, source_page INTEGER, extraction_method TEXT, verified_at INTEGER, created_at INTEGER)`);
     await db.execute(`CREATE TABLE IF NOT EXISTS pyq_usage (pyq_id TEXT, mcq_id TEXT, generated_at INTEGER, PRIMARY KEY(pyq_id, mcq_id))`);
     await db.execute(`CREATE TABLE IF NOT EXISTS pyq_ingest_state (state_key TEXT PRIMARY KEY, cursor INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`);
+    
     log('Migrations OK');
   } catch (e) { log(`Migration error: ${safeDbError(e).message}`); }
 }
 
 // ═══════════════════════════════════════════
-// 2. STRUCTURAL AUDIT (audit-mcqs)
+// 2. STRUCTURAL AUDIT
 // ═══════════════════════════════════════════
 async function runAudit() {
   logSection('STEP 2: Structural Audit');
@@ -77,7 +89,7 @@ async function runAudit() {
 }
 
 // ═══════════════════════════════════════════
-// 3. PYQ INGESTION (ingest-pyq)
+// 3. PYQ INGESTION
 // ═══════════════════════════════════════════
 async function runPyqIngest() {
   if (!PYQ_REGISTRY || !PYQ_REGISTRY.length) { log('PYQ Registry empty'); return; }
@@ -159,7 +171,6 @@ async function ensureQueueHasTasks() {
     log(`Queued ${q} tasks`); return;
   }
 
-  // Expand pool
   let best = SUBJECT_SEEDS[0], min = Infinity;
   for (const s of SUBJECT_SEEDS) { const cnt = (await db.execute({ sql: 'SELECT COUNT(*) AS c FROM chapter_pool WHERE category=? AND section=? AND subject=?', args: [s.category, s.section, s.subject] })).rows[0]?.c || 0; if (cnt < min) { min = cnt; best = s; } }
   const ex = (await db.execute({ sql: 'SELECT chapter FROM chapter_pool WHERE category=? AND section=? AND subject=?', args: [best.category, best.section, best.subject] })).rows.map(r => r.chapter);
@@ -183,10 +194,17 @@ async function processTasks() {
       const res = await generateFromScratch({ category: task.category, section: task.section, subject: task.subject, chapter: task.chapter, exam_type: 'mixed', difficulty: 'hard', count: task.target_count || MCQS_PER_CHAPTER, taskId: task.id });
       const outcome = computeTaskOutcome(task, res, MAX_TASK_ATTEMPTS);
       
-      await db.execute({ sql: `UPDATE generation_tasks SET status=?, generated_count=?, last_error=?, updated_at=? WHERE id=?`, args: [outcome.taskStatus, outcome.cumulativeGenerated, outcome.errorText, Date.now(), task.id] });
+      // FIXED LOGGING
+      if (!res.success) {
+        log(`Failed: ${res.error || 'Unknown error'}`);
+        if (res.diagnostics) log(`Diagnostics: ${JSON.stringify(res.diagnostics)}`);
+      } else {
+        log(`Saved: ${res.count}, Rejected: ${res.rejectedTotal}, Rounds used: ${res.roundsUsed}`);
+      }
+
+      await db.execute({ sql: `UPDATE generation_tasks SET status=?, generated_count=?, last_error=?, updated_at=? WHERE id=?`, args: [outcome.taskStatus, outcome.cumulativeGenerated, outcome.errorText || res?.error || null, Date.now(), task.id] });
       await db.execute({ sql: `UPDATE chapter_pool SET status=?, mcq_count=mcq_count+?, updated_at=? WHERE category=? AND section=? AND subject=? AND chapter=?`, args: [outcome.chapterStatus, outcome.insertedThisAttempt, Date.now(), task.category, task.section, task.subject, task.chapter] });
       
-      log(`Saved: ${res.count}, Rejected: ${res.rejectedTotal}, Time: ${res.roundsUsed} rounds`);
     } catch (e) {
       log(`Task crash: ${e.message}`);
       await db.execute({ sql: "UPDATE generation_tasks SET status='pending', last_error=? WHERE id=?", args: [e.message, task.id] });
