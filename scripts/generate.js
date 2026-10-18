@@ -34,9 +34,6 @@ const SUBJECT_SEEDS = [
 function log(m) { console.log(`[${new Date().toISOString()}] ${m}`); }
 function logSection(t) { console.log('\n' + '='.repeat(60)); console.log(t); console.log('='.repeat(60)); }
 
-// ═══════════════════════════════════════════
-// 1. SCHEMA MIGRATION (Fixed)
-// ═══════════════════════════════════════════
 async function runMigrations() {
   logSection('STEP 1: Migrations');
   const db = getDb();
@@ -50,7 +47,6 @@ async function runMigrations() {
         await db.execute(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); 
       }
     }
-    // FIXED: Ye columns add kiye ja rahe hain taaki purana DB bhi naye code se chal sake
     await addCol('mcqs', 'audit_status', "TEXT NOT NULL DEFAULT 'pending'");
     await addCol('mcqs', 'audit_notes', 'TEXT');
     await addCol('mcqs', 'audit_checked_at', 'INTEGER');
@@ -69,9 +65,6 @@ async function runMigrations() {
   } catch (e) { log(`Migration error: ${safeDbError(e).message}`); }
 }
 
-// ═══════════════════════════════════════════
-// 2. STRUCTURAL AUDIT
-// ═══════════════════════════════════════════
 async function runAudit() {
   logSection('STEP 2: Structural Audit');
   const db = getDb();
@@ -88,9 +81,6 @@ async function runAudit() {
   } catch (e) { log(`Audit error: ${safeDbError(e).message}`); }
 }
 
-// ═══════════════════════════════════════════
-// 3. PYQ INGESTION
-// ═══════════════════════════════════════════
 async function runPyqIngest() {
   if (!PYQ_REGISTRY || !PYQ_REGISTRY.length) { log('PYQ Registry empty'); return; }
   logSection('STEP 3: PYQ Ingestion');
@@ -130,9 +120,6 @@ async function runPyqIngest() {
   await db.execute({ sql: "INSERT INTO pyq_ingest_state (state_key, cursor, updated_at) VALUES ('cursor', ?, ?) ON CONFLICT(state_key) DO UPDATE SET cursor=excluded.cursor, updated_at=excluded.updated_at", args: [cur, Date.now()] });
 }
 
-// ═══════════════════════════════════════════
-// 4. QUEUE & GENERATION
-// ═══════════════════════════════════════════
 async function checkConnection() {
   const r = await diagnoseTurso();
   if (!r.success) { log(`DB failed: ${r.error}`); process.exit(1); }
@@ -194,7 +181,6 @@ async function processTasks() {
       const res = await generateFromScratch({ category: task.category, section: task.section, subject: task.subject, chapter: task.chapter, exam_type: 'mixed', difficulty: 'hard', count: task.target_count || MCQS_PER_CHAPTER, taskId: task.id });
       const outcome = computeTaskOutcome(task, res, MAX_TASK_ATTEMPTS);
       
-      // FIXED LOGGING
       if (!res.success) {
         log(`Failed: ${res.error || 'Unknown error'}`);
         if (res.diagnostics) log(`Diagnostics: ${JSON.stringify(res.diagnostics)}`);
