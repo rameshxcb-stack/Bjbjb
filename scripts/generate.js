@@ -209,8 +209,11 @@ async function main() {
       await runPyqIngest();
     }
 
-    await seedSubjectsIfNeeded();
-    await ensureQueueHasTasks();
+    // ⚠️ AUTO-QUEUE STOPPED HERE ⚠️
+    // await seedSubjectsIfNeeded(); 
+    // await ensureQueueHasTasks();
+    // -------------------------------
+    
     await processTasks();
     log('WORKFLOW COMPLETE');
   } catch (e) {
